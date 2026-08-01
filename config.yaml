@@ -1,0 +1,9 @@
+# skiff — every knob lives here. Default 1 instance: the launcher checks
+# /proc/meminfo MemAvailable and refuses overcommit (design review I5 — the 16 GB dev
+# box has ~11.7 GiB available and an OOM history). Raise instances only when
+# MemAvailable clears instances × ram_mib + 1 GiB host margin.
+instances: 1
+ram_mib: 3072             # sized for the lightweight default model (Ross 2026-07-31)
+vcpus: 4
+model: qwen3-1.7b-q4.gguf # Qwen3-1.7B Q4 (~1.1 GB file) — "really lightweight" per Ross;
+                          # must exist under models/ (also packed into models.ext4)

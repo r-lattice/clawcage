@@ -1,0 +1,54 @@
+== skiff isolation proof — 2026-08-01T15:37:20Z ==
+run dir: /tmp/skiff-run.d
+
+-- 0. leak-demo mode is NEVER a real run (S-6) --
+OK: no leak-demo marker in /tmp/skiff-run.d
+
+-- 1. Host is not forwarding --
+net.ipv4.ip_forward = 0
+
+-- 2. nftables: the two chains, checked separately (P-3) --
+forward chain, verbatim:
+table inet skiff {
+	chain forward {
+		type filter hook forward priority filter; policy accept;
+		iifname "skiff-tap*" counter packets 0 bytes 0 drop
+		oifname "skiff-tap*" counter packets 0 bytes 0 drop
+	}
+}
+input chain, verbatim:
+table inet skiff {
+	chain input {
+		type filter hook input priority filter; policy accept;
+		iifname "skiff-tap*" ct state established counter packets 104 bytes 11352 accept
+		iifname "skiff-tap*" counter packets 0 bytes 0 drop
+	}
+}
+
+-- 2b. forward drop counters, graded against the LIVE forwarding posture (P-2) --
+counter evidence, verbatim:
+		iifname "skiff-tap*" counter packets 0 bytes 0 drop
+		oifname "skiff-tap*" counter packets 0 bytes 0 drop
+OK: 0 packet(s) on the forward drops — with net.ipv4.ip_forward = 0 that is the
+    EXPECTED AND CORRECT reading, not a gap: the kernel rejects a non-local guest packet
+    at the routing decision and NEVER traverses the forward hook, so these counters cannot
+    increment in the configuration skiff ships. ip_forward = 0 (check 1) is the primary
+    control; these rules are defence in depth for the day forwarding is enabled, and their
+    presence is check 2. The load-bearing test for the rules themselves is the ABLATION run
+    with ip_forward=1, where this check demands non-zero and fails on zero.
+
+-- 3. TAPs are host-only /30s --
+skiff-tap0       UP             172.30.0.1/30 
+
+-- 4.0 instance 0 --
+OK: reachable from host (172.30.0.2:8080)
+OK: skiff-tap0 has IPv6 disabled (disable_ipv6=1)
+OK (corroboration only — guest-authored, not evidence against a malicious guest):
+SKIFF-OUTBOUND-BLOCKED: default route via 172.30.0.1 installed, TCP 443 rc=1, UDP 53 reply bytes=0 — neither probe connected
+
+== PROOF PASSED: 1 instance(s), host-only, forwarding off and forward-dropped ==
+   Authoritative evidence is host-side kernel state: ip_forward (check 1) is the primary
+   control, the forward drop rules (check 2) are defence in depth, and check 2b grades
+   their counters against the live forwarding posture — zero is correct when forwarding
+   is off, and required to be non-zero when it is on. The guest's own BLOCKED line
+   corroborates all of it and never carries the verdict alone.

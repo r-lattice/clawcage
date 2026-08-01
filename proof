@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# proof — print checkable isolation evidence for running skiff VMs.
+# Read-only, but must run as root: the kernel refuses `nft list` to unprivileged
+# users (design review B1, executed on the dev box). It lists state and probes health
+# endpoints; it changes nothing.
+# Usage: sudo ./proof <count>
+set -euo pipefail
+if [[ $EUID -ne 0 ]]; then
+  echo "proof: nftables state is root-listable only — run: sudo ./proof <count>" >&2
+  echo "proof is read-only: it lists state and probes health endpoints, changes nothing." >&2
+  exit 1
+fi
+count="${1:?usage: sudo proof <count>}"
+
+# Validate `count` BEFORE any use — same guard, same reasoning as netsetup (task-5
+# finding F-1). The instance loop below is `for ((n = 0; n < count; n++))`, and bash
+# evaluates an arithmetic operand as an *expression*: a value like `n[$(cmd)]` runs
+# `cmd`. proof runs under sudo, so that is command execution as root, in the one
+# script whose entire job is to be trustworthy. `set -u` catches only the unbound
+# case. The regex bounds the DIGIT-STRING LENGTH before any arithmetic happens,
+# because bash arithmetic is signed 64-bit and wraps silently — a bare `^[0-9]+$`
+# plus a `> 256` comparison is bypassable by a 32-digit number.
+if ! [[ "$count" =~ ^(0|[1-9][0-9]{0,2})$ ]] || ((count > 256)); then
+  echo "proof: count must be an integer in 0..256, got '${count}'" >&2
+  exit 1
+fi
+
+fail=0
+say() { printf '%s\n' "$*"; }
+
+# Sockets and console logs live off the bundle (S-4). If SKIFF_RUN_DIR was set for
+# `./run up`, run this as `sudo -E ./proof <count>` so the variable survives sudo.
+rundir="${SKIFF_RUN_DIR:-/tmp/skiff-run.d}"
+
+# Every external command below is guarded with `|| { say FAIL...; fail=1; }` or an
+# `|| true` capture. Under `set -e` an unguarded failure exits BEFORE the banner is
+# printed — fail-closed on the exit code, but the transcript IS the deliverable, so
+# it has to end with a verdict line (P-5).
+
+say "== skiff isolation proof — $(date -u +%FT%TZ) =="
+say "run dir: ${rundir}"
+
+say ""
+say "-- 0. leak-demo mode is NEVER a real run (S-6) --"
+# SKIFF_LEAK_DEMO=1 gives the guest a default route on purpose. With the guard also
+# up, the host drops the traffic, the guest reports BLOCKED, and the transcript is
+# otherwise indistinguishable from a production run. `run up` drops this marker in
+# the run dir so proof can refuse to grade such a run at all.
+if [[ -e "${rundir}/leak-demo.marker" ]]; then
+  say "FAIL: ${rundir}/leak-demo.marker exists — leak-demo mode — this is never a real run."
+  say "      These VMs were booted with SKIFF_LEAK_DEMO=1. Nothing below would be publishable"
+  say "      evidence, so proof stops here rather than printing a gradeable transcript."
+  say ""
+  say "== PROOF FAILED — see FAIL lines above =="
+  exit 1
+fi
+say "OK: no leak-demo marker in ${rundir}"
+
+say ""
+say "-- 1. Host is not forwarding --"
+fwd=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || echo UNREADABLE)
+say "net.ipv4.ip_forward = $fwd"
+[[ "$fwd" == "0" ]] || { say "FAIL: ip_forward is '$fwd', want 0"; fail=1; }
+
+say ""
+say "-- 2. nftables: the two chains, checked separately (P-3) --"
+# NEVER `nft list table … | grep`: the input chain's drop renders as the SAME text as
+# the forward chain's, so a table-wide grep reports "forward-drop present" even when
+# the entire forward chain is missing. Ask each chain by name.
+fwd_chain=$(nft list chain inet skiff forward 2>/dev/null || true)
+in_chain=$(nft list chain inet skiff input 2>/dev/null || true)
+
+grep -qE 'iifname "skiff-tap\*" counter packets [0-9]+ bytes [0-9]+ drop' <<<"$fwd_chain" \
+  || { say "FAIL: forward chain missing its iifname counter-drop rule"; fail=1; }
+grep -qE 'oifname "skiff-tap\*" counter packets [0-9]+ bytes [0-9]+ drop' <<<"$fwd_chain" \
+  || { say "FAIL: forward chain missing its oifname counter-drop rule"; fail=1; }
+grep -qE 'iifname "skiff-tap\*" ct state established counter packets [0-9]+ bytes [0-9]+ accept' <<<"$in_chain" \
+  || { say "FAIL: input chain missing the established-only counter-accept rule (design review I1 / S-7)"; fail=1; }
+grep -qE 'iifname "skiff-tap\*" counter packets [0-9]+ bytes [0-9]+ drop' <<<"$in_chain" \
+  || { say "FAIL: input chain missing its counter-drop rule — guests could initiate to the host"; fail=1; }
+say "forward chain, verbatim:"
+printf '%s\n' "$fwd_chain" || true
+say "input chain, verbatim:"
+printf '%s\n' "$in_chain" || true
+
+say ""
+say "-- 2b. forward drop counters, graded against the LIVE forwarding posture (P-2) --"
+# A non-zero drop counter is the host kernel's own record that the guest tried to leave
+# and was stopped — the guest can write anything it likes to its console, but it cannot
+# write this number. That makes it the strongest evidence available here, and this check
+# used to demand it unconditionally. It cannot: with net.ipv4.ip_forward=0 — the posture
+# skiff SHIPS and check 1 enforces — the kernel rejects a non-local guest packet at the
+# routing decision and never traverses netfilter's forward hook at all, so these counters
+# are STRUCTURALLY zero however hard the guest probes. Demanding non-zero in that posture
+# is unsatisfiable, not merely unlucky: it can only pass in a configuration we
+# deliberately do not ship. Hence the grading below is conditional on the live value:
+#   ip_forward=0 → zero is the EXPECTED and CORRECT reading. ip_forward=0 is the PRIMARY
+#                  control (check 1); these rules are DEFENCE IN DEPTH for the day
+#                  forwarding is enabled and their PRESENCE is check 2. The load-bearing
+#                  test for the rules themselves is the ablation run with ip_forward=1.
+#   ip_forward=1 → the forward hook IS traversed, so a probing guest must leave a mark.
+#                  Zero then means the guard is present but not working: FAIL.
+# Anything that is not a literal 0 (including UNREADABLE) takes the strict branch — an
+# unknown forwarding posture is graded as if forwarding were on, i.e. fail-closed. The
+# counters are printed verbatim either way; the reading is what changes, never the data.
+fwd_counters=$(grep -E '(iifname|oifname) "skiff-tap\*" counter' <<<"$fwd_chain" || true)
+if [[ -z "$fwd_counters" ]]; then
+  say "FAIL: no forward-chain counter lines to read (see check 2)"; fail=1
+else
+  say "counter evidence, verbatim:"
+  printf '%s\n' "$fwd_counters" || true
+  # `|| true` keeps a dying awk from aborting the run before the banner; an empty
+  # `pkts` then evaluates as 0 below and is graded as ZERO counters, i.e. fail-closed
+  # in the ip_forward=1 branch, which is the branch where the number carries a verdict.
+  pkts=$(awk '{for (i = 1; i <= NF; i++) if ($i == "packets") s += $(i + 1)} END {print s + 0}' <<<"$fwd_counters") || true
+  if [[ "$fwd" == "0" ]]; then
+    say "OK: ${pkts} packet(s) on the forward drops — with net.ipv4.ip_forward = 0 that is the"
+    say "    EXPECTED AND CORRECT reading, not a gap: the kernel rejects a non-local guest packet"
+    say "    at the routing decision and NEVER traverses the forward hook, so these counters cannot"
+    say "    increment in the configuration skiff ships. ip_forward = 0 (check 1) is the primary"
+    say "    control; these rules are defence in depth for the day forwarding is enabled, and their"
+    say "    presence is check 2. The load-bearing test for the rules themselves is the ABLATION run"
+    say "    with ip_forward=1, where this check demands non-zero and fails on zero."
+  elif [[ "$pkts" -gt 0 ]]; then
+    say "OK: ${pkts} packet(s) hit the forward drops — the guest tried, the kernel stopped it"
+    say "    (net.ipv4.ip_forward = ${fwd}; a non-zero counter is the kernel's own record that the"
+    say "    forward hook was traversed and this rule fired — the guest cannot author this number)"
+  else
+    say "FAIL: forward drop counters are ZERO while net.ipv4.ip_forward = '${fwd}' — forwarding is on"
+    say "      (or unreadable, which is graded as on), so the forward hook IS traversed and a probing"
+    say "      guest must leave a mark here. Either the guard is present and not working, or the guest"
+    say "      probe never ran: check each instance's SKIFF-OUTBOUND-* console line below, and run the"
+    say "      guest probe before grading this."
+    fail=1
+  fi
+fi
+
+say ""
+say "-- 3. TAPs are host-only /30s --"
+ip -br addr show | grep 'skiff-tap' || { say "FAIL: no skiff TAPs found"; fail=1; }
+
+for ((n = 0; n < count; n++)); do
+  say ""
+  say "-- 4.$n instance $n --"
+  if curl -fsS -m 3 "http://172.30.${n}.2:8080/health" >/dev/null; then
+    say "OK: reachable from host (172.30.${n}.2:8080)"
+  else
+    say "FAIL: instance $n not serving"; fail=1
+  fi
+
+  # S-1: skiff's own per-TAP posture, not the host's default. On a box with IPv6 on,
+  # a TAP with a v6 stack is an RA path from the guest into the host's routing table.
+  v6=$(cat "/proc/sys/net/ipv6/conf/skiff-tap${n}/disable_ipv6" 2>/dev/null || echo UNREADABLE)
+  if [[ "$v6" == "1" ]]; then
+    say "OK: skiff-tap${n} has IPv6 disabled (disable_ipv6=1)"
+  else
+    say "FAIL: skiff-tap${n} disable_ipv6 = '$v6', want 1 — guest→host RA injection is live"; fail=1
+  fi
+
+  # Guest self-report. Corroboration ONLY: this is a byte stream the adversary writes.
+  # Priority is ESCAPED → BROKEN → BLOCKED, deliberately the reverse of the naive
+  # order — a guest that prints both must be read as escaped, and "could not probe"
+  # must never be graded as "was prevented" (P-1).
+  #
+  # The three display greps below re-read the log ONLY to print the matched line, and
+  # each carries `|| true`. The verdict is already decided by the `-qE` match in the
+  # branch condition, so their exit status carries no information — but unguarded,
+  # under `set -e`, a log that is deleted or truncated between the two greps (the VM
+  # exits mid-proof) aborts the script before `fail=1` and before the banner. That is
+  # the exact P-5 failure this file's header promises cannot happen.
+  log="${rundir}/skiff-${n}.console.log"
+  if [[ ! -f "$log" ]]; then
+    say "FAIL: no console log at $log (VM not booted?)"; fail=1
+  elif grep -aqE '^[[:space:]]*SKIFF-OUTBOUND-ESCAPED' "$log"; then
+    say "FAIL: GUEST REACHED THE OUTSIDE WORLD:"
+    grep -aE '^[[:space:]]*SKIFF-OUTBOUND-ESCAPED' "$log" || true; fail=1
+  elif grep -aqE '^[[:space:]]*SKIFF-PROBE-BROKEN' "$log"; then
+    say "FAIL: the guest's evidence machinery died — 'could not probe' is not 'blocked':"
+    grep -aE '^[[:space:]]*SKIFF-PROBE-BROKEN' "$log" || true; fail=1
+  elif grep -aqE '^[[:space:]]*SKIFF-OUTBOUND-BLOCKED' "$log"; then
+    say "OK (corroboration only — guest-authored, not evidence against a malicious guest):"
+    grep -aE '^[[:space:]]*SKIFF-OUTBOUND-BLOCKED' "$log" || true
+  else
+    say "FAIL: no probe line in $log (VM not booted, or init died before the probe)"; fail=1
+  fi
+done
+
+say ""
+if [[ "$fail" == "0" ]]; then
+  say "== PROOF PASSED: ${count} instance(s), host-only, forwarding off and forward-dropped =="
+  say "   Authoritative evidence is host-side kernel state: ip_forward (check 1) is the primary"
+  say "   control, the forward drop rules (check 2) are defence in depth, and check 2b grades"
+  say "   their counters against the live forwarding posture — zero is correct when forwarding"
+  say "   is off, and required to be non-zero when it is on. The guest's own BLOCKED line"
+  say "   corroborates all of it and never carries the verdict alone."
+else
+  say "== PROOF FAILED — see FAIL lines above =="
+  exit 1
+fi

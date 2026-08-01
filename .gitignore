@@ -1,0 +1,9 @@
+stick/
+*.ext4
+vmlinux*
+*.gguf
+/run
+run.d/
+bin/
+.skiff-build*
+netsetup.state

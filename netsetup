@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# netsetup — create host-only TAPs + deny-all nftables for skiff VMs.
+# The ONLY component that needs root. Single-purpose: networking, nothing else.
+# Usage: sudo ./netsetup up <count> <username>   |   sudo ./netsetup down <count>
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+cmd="${1:?usage: netsetup up <count> <user> | netsetup down <count>}"
+count="${2:?instance count required}"
+
+# Validate `count` BEFORE any use. Both branches feed it to `for ((n = 0; n < count; n++))`,
+# and bash evaluates an arithmetic operand as an *expression*: a value like `n[$(cmd)]`
+# runs `cmd` — and this script runs under sudo, so that is command execution as root.
+# Verified exploitable against the unguarded version (task-5 report, finding F-1); `set -u`
+# stops only the unbound-name case, not a bound one. This also rejects the negative and
+# non-numeric counts that otherwise report success while creating zero TAPs.
+# Upper bound 256: the address plan is 172.30.<n>.1/30, so n must stay inside one octet.
+#
+# The regex must bound the DIGIT-STRING LENGTH, not just the character set, and it must do so
+# BEFORE any arithmetic. Bash arithmetic is signed 64-bit and wraps silently, so a bare
+# `^[0-9]+$` plus `((count > 256))` is bypassable: `99999999999999999999999999999999` wraps
+# negative, compares <= 256, and sails through (verified — it made `up` print success with zero
+# TAPs, and made `down` delete the nftables guard while leaving the real TAPs alive).
+# `{0,2}` caps the value at 999, far below the wrap point, so the comparison below is safe.
+# The `0|[1-9]…` alternation also rejects leading zeros, so `count` is always canonical decimal
+# in netsetup.state and there is no octal-vs-decimal ambiguity to disarm with a `10#` prefix.
+if ! [[ "$count" =~ ^(0|[1-9][0-9]{0,2})$ ]] || ((count > 256)); then
+  echo "netsetup: count must be an integer in 0..256, got '${count}'" >&2
+  exit 1
+fi
+
+case "$cmd" in
+up)
+  user="${3:?username required for 'up'}"
+  nft add table inet skiff 2>/dev/null || true
+  nft flush table inet skiff
+  # Forwarding: VM traffic never crosses the host to anywhere else.
+  # EVERY drop carries `counter`. A non-zero counter is host-side, unforgeable
+  # evidence that the guest tried and the kernel stopped it — it proves the rule is
+  # load-bearing, not merely present, and it is the ONE piece of evidence in this
+  # project the guest cannot author (security review P-2).
+  nft add chain inet skiff forward '{ type filter hook forward priority 0; policy accept; }'
+  nft add rule inet skiff forward iifname "skiff-tap*" counter drop
+  nft add rule inet skiff forward oifname "skiff-tap*" counter drop
+  # Input: guests may ANSWER the host, never initiate to it — without this, any
+  # 0.0.0.0 listener on the host is an egress proxy for the guest (design review I1).
+  # `established` only, no `related` (S-7): the guest needs exactly one thing — to
+  # answer the host's connection to :8080. `related` additionally admits the
+  # conntrack-helper class, which is unearned surface skiff does not need.
+  nft add chain inet skiff input '{ type filter hook input priority 0; policy accept; }'
+  nft add rule inet skiff input iifname "skiff-tap*" ct state established counter accept
+  nft add rule inet skiff input iifname "skiff-tap*" counter drop
+  for ((n = 0; n < count; n++)); do
+    tap="skiff-tap${n}"
+    # Delete-then-add, never `add ... || true` (S-5). Swallowing EEXIST means a
+    # pre-existing skiff-tap0 — left by a crashed run, created by another user, or
+    # planted and enslaved to a bridge carrying the real NIC — gets silently adopted,
+    # and every host-side check in `proof` still passes because bridging is L2 and
+    # never reaches the routing stage. We own the device or we fail.
+    ip link del "$tap" 2>/dev/null || true
+    ip tuntap add dev "$tap" mode tap user "$user"
+    # Per-TAP hardening (S-1/S-8): set skiff's posture, don't inherit the host's.
+    # disable_ipv6=1 — belt to the guest's ipv6.disable=1: no v6 address on the TAP means
+    # no RA path to the host at all. That one takes effect.
+    # rp_filter=1 DOES NOT take effect on this host, and pretending otherwise would be the
+    # worse bug: the kernel applies max(conf.all.rp_filter, conf.<iface>.rp_filter), and this
+    # box ships conf.all=2 (loose), so the effective mode stays 2 whatever is written here.
+    # Making it strict means writing the host-wide conf.all — one sysctl that changes
+    # reverse-path filtering for every interface on someone's workstation — which skiff will
+    # not do for a control it does not depend on. The per-TAP value is still set so the
+    # posture is correct on a host whose conf.all is not 2, and the README's Limitations say
+    # plainly that it is a no-op here. Cross-instance source spoofing is bounded by the /30
+    # point-to-point segments and the counted forward drops, not by rp_filter.
+    sysctl -qw "net.ipv4.conf.${tap}.rp_filter=1" "net.ipv6.conf.${tap}.disable_ipv6=1"
+    ip addr replace "172.30.${n}.1/30" dev "$tap"
+    ip link set "$tap" up
+  done
+  # State file (S-2): the guard is a non-persistent nftables table on a host where
+  # firewalld and nordvpnd both rewrite firewall state. The launcher refuses to boot
+  # a VM without this file, so "TAP exists" can never be mistaken for "guard exists".
+  # netsetup writes it as root and the launcher only reads it, which makes it a guard
+  # against the MISTAKE of booting with no guard up. It is NOT a control against a hostile
+  # local user and must not be described as one: the bundle directory is user-writable, so
+  # anyone who can run the launcher can unlink this file and write their own count= line.
+  # Same statement as the README's Limitations entry for netsetup.state.
+  {
+    echo "count=${count}"
+    echo "ruleset_sha=$(nft -s list table inet skiff | sha256sum | cut -d' ' -f1)"
+  } > netsetup.state
+  # Tightening owner+mode is BEST-EFFORT, and only because of where this bundle is meant to
+  # live: on a vfat/exFAT USB stick, ownership and mode are properties of the MOUNT, not of
+  # the file, so both calls return EPERM no matter who runs them. Under `set -e` that aborted
+  # `netsetup up` AFTER the TAPs and the nftables table already existed — a half-configured
+  # host, which is strictly worse than a state file this filesystem cannot protect. On ext4
+  # both calls still apply exactly as before; where they cannot, say so instead of failing or
+  # pretending. (The state file's job is the launcher's boot gate — it guards against the
+  # mistake of booting with no guard up, never against the operator: the bundle directory is
+  # user-writable, so unlink-and-recreate is available to the user on any filesystem.)
+  state_perms_ok=1
+  chown root:root netsetup.state 2>/dev/null || state_perms_ok=0
+  chmod 0644 netsetup.state 2>/dev/null || state_perms_ok=0
+  ((state_perms_ok)) || echo "netsetup: note — this filesystem cannot store owner/mode (vfat/exFAT?), so netsetup.state is left at the mount's defaults" >&2
+  echo "netsetup: ${count} TAP(s) up, counted forward-drop table 'inet skiff' active, netsetup.state written"
+  ;;
+down)
+  for ((n = 0; n < count; n++)); do
+    ip link del "skiff-tap${n}" 2>/dev/null || true
+  done
+  nft delete table inet skiff 2>/dev/null || true
+  rm -f netsetup.state
+  echo "netsetup: TAPs, nftables table and netsetup.state removed"
+  ;;
+*)
+  echo "netsetup: unknown command '$cmd'" >&2
+  exit 1
+  ;;
+esac
