@@ -191,42 +191,55 @@ checkable. Results will land in `docs/ablation-<date>.md`; until then, no row be
 | 5 | leak-demo boot args, no host NAT | FAIL at check 0 on the leak-demo marker; counters above baseline |
 | 6 | full leak (guard down + NAT) | `SKIFF-OUTBOUND-ESCAPED`, exit 1 |
 
-### 4. Leak demo — DEFERRED, and why
+### 4. Leak demo — DEMONSTRATED end-to-end, 2026-08-01
 
-A proof that can only pass proves nothing, so the two-direction evidence matters more than the
-passing transcript. The `ESCAPED` tripwire is exercised in `test/proof_harness.sh`, which is in
-this repository and takes no arguments and no sudo: **16 scenarios** driving the real `proof`
-against real kernel state and real console-log files, one expecting exit 0 and fifteen expecting
-exit 1, every check driven in both directions — including a log carrying **all three** markers
-(`BLOCKED`, `PROBE-BROKEN`, `ESCAPED`) where `ESCAPED` correctly wins the verdict and the run
-exits 1.
+A proof that can only pass proves nothing. So the controls were deliberately removed on real
+hardware and the guest was allowed to genuinely reach the public internet — and the question was
+whether `proof` would say so.
+
+It did, on **seven independent host-side checks, before it read a single word the guest wrote**:
+
+```
+FAIL: ip_forward is '1', want 0
+FAIL: forward chain missing its iifname counter-drop rule
+FAIL: forward chain missing its oifname counter-drop rule
+FAIL: input chain missing the established-only counter-accept rule (design review I1 / S-7)
+FAIL: input chain missing its counter-drop rule — guests could initiate to the host
+FAIL: no forward-chain counter lines to read (see check 2)
+FAIL: skiff-tap0 disable_ipv6 = '0', want 1 — guest→host RA injection is live
+FAIL: GUEST REACHED THE OUTSIDE WORLD:
+SKIFF-OUTBOUND-ESCAPED: TCP connect to 1.1.1.1:443 succeeded via 172.30.0.1 — ISOLATION BROKEN
+```
+
+That ordering is the design argument made concrete: the host kernel indicted the configuration on
+its own, and the guest's own confession was the last line, not the first. Full transcript:
+[`docs/leak-demo-2026-08-01.txt`](docs/leak-demo-2026-08-01.txt).
+
+**Why the escape needed three separate things removed.** Getting a guest packet onto the internet
+required disabling the host's IP forwarding guard *and* the VPN's own `forward policy drop` *and*
+adding the interface to a firewalld zone, because firewalld's forward chain ends in `reject with
+icmpx admin-prohibited` for any interface it does not know. Two host firewalls each independently
+prevented the escape before skiff's own rules mattered. That is worth stating plainly: on a
+defended workstation, several unrelated things must fail at once before this is even reachable.
+
+**The drill-marker catch, separately.** `proof` refuses to grade a leak-demo run at all — a marker
+written by the launcher hard-fails check 0 before anything else is evaluated, so a rehearsal can
+never be mistaken for a passing run: [`docs/leak-demo-marker-2026-08-01.txt`](docs/leak-demo-marker-2026-08-01.txt).
+The marker was removed for the primary run above, because a real misconfiguration would not have one.
+
+**Also exercised without hardware:** `test/proof_harness.sh` runs **16 scenarios** driving the real
+`proof` against real kernel state and real console-log files — one expecting exit 0, fifteen
+expecting exit 1 — including a log carrying **all three** markers (`BLOCKED`, `PROBE-BROKEN`,
+`ESCAPED`) where `ESCAPED` correctly wins.
 
 ```
 bash test/proof_harness.sh
 ```
 
-It prints one line per scenario and its own verdict, and it refuses to grade a scenario whose
-fixture failed before `proof` ran, so a broken fixture cannot be counted as a check that
-"correctly failed". It is mutation-verified the same way the Go suites are: deleting `proof`'s
-`ESCAPED` branch turns the `escaped-wins` scenario red and leaves the other fifteen green.
-
-The live `proof` has also been observed failing three separate ways on real hardware (the
-zero-counter check before it was made conditional; the leak-demo marker; the `PROBE-BROKEN` state).
-
-**What has not happened: a genuine outbound escape observed end-to-end on real hardware.** The
-attempt was made and blocked by the environment, not by skiff. This test host runs NordVPN, whose
-own nftables table carries `type filter hook forward priority filter; policy drop`; forwarded guest
-traffic dies at the VPN's forward chain before skiff's own rules are ever relevant, so no packet can
-reach the internet regardless of what skiff does. Working around that means modifying someone's
-VPN firewall on their workstation, which is the owner's decision, not an agent's. A DNAT-based
-workaround was written, then abandoned rather than piled higher.
-
-The retest is tracked and gated on the owner choosing one of: temporarily stopping the VPN daemon,
-adding a temporary accept rule to its forward chain, or running the demo on a host without a VPN
-firewall. Until one of those happens, this README claims harness-level detection evidence and
-nothing more.
-
----
+It refuses to grade a scenario whose fixture failed before `proof` ran, so a broken fixture cannot
+be counted as a check that "correctly failed". It is mutation-verified the same way the Go suites
+are: deleting `proof`'s `ESCAPED` branch turns the `escaped-wins` scenario red and leaves the other
+fifteen green.
 
 ## Honest numbers
 
@@ -360,13 +373,11 @@ file count.
 - kernel `.config` not independently pinned
 - no cgroup/CPU/PID limits on the VMM process (v1)
 - provenance unsigned (sha256 manifest only)
-- **The end-to-end leak demo has not been run.** The `ESCAPED` tripwire is exercised in
-  `test/proof_harness.sh` — 16 scenarios against real kernel state, including a log carrying all
-  three markers where `ESCAPED` correctly wins — but a genuine outbound escape has not been
-  demonstrated end-to-end on real hardware. The reason is environmental, not a skiff defect: this host's VPN
-  installs its own `forward` chain with `policy drop`, so forwarded guest traffic never reaches
-  skiff's rules or the internet. The retest is tracked and gated on the owner's decision about that
-  firewall.
+- **The escape demo was run on one host, with that host's own defences deliberately lowered.**
+  It is genuine — the guest reached the public internet and `proof` failed (section 4) — but
+  reaching that state required disabling the host's forwarding guard, the VPN's own forward-drop
+  chain, and firewalld's default rejection. It has not been repeated across different distributions
+  or firewall configurations.
 - **Per-TAP `rp_filter=1` is a no-op on this host.** The kernel applies
   `max(net.ipv4.conf.all.rp_filter, net.ipv4.conf.<iface>.rp_filter)`, and this box ships
   `conf.all = 2` (loose), so the effective mode stays loose no matter what `netsetup` writes on

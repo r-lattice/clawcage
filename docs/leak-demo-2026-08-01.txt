@@ -1,0 +1,33 @@
+== skiff isolation proof — 2026-08-01T16:59:36Z ==
+run dir: /tmp/skiff-run.d
+
+-- 0. leak-demo mode is NEVER a real run (S-6) --
+OK: no leak-demo marker in /tmp/skiff-run.d
+
+-- 1. Host is not forwarding --
+net.ipv4.ip_forward = 1
+FAIL: ip_forward is '1', want 0
+
+-- 2. nftables: the two chains, checked separately (P-3) --
+FAIL: forward chain missing its iifname counter-drop rule
+FAIL: forward chain missing its oifname counter-drop rule
+FAIL: input chain missing the established-only counter-accept rule (design review I1 / S-7)
+FAIL: input chain missing its counter-drop rule — guests could initiate to the host
+forward chain, verbatim:
+
+input chain, verbatim:
+
+
+-- 2b. forward drop counters, graded against the LIVE forwarding posture (P-2) --
+FAIL: no forward-chain counter lines to read (see check 2)
+
+-- 3. TAPs are host-only /30s --
+skiff-tap0       UP             172.30.0.1/30 fe80::7cd3:43ff:fec6:d23d/64 
+
+-- 4.0 instance 0 --
+OK: reachable from host (172.30.0.2:8080)
+FAIL: skiff-tap0 disable_ipv6 = '0', want 1 — guest→host RA injection is live
+FAIL: GUEST REACHED THE OUTSIDE WORLD:
+SKIFF-OUTBOUND-ESCAPED: TCP connect to 1.1.1.1:443 succeeded via 172.30.0.1 — ISOLATION BROKEN
+
+== PROOF FAILED — see FAIL lines above ==

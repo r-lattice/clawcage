@@ -1,0 +1,9 @@
+== skiff isolation proof — 2026-08-01T16:59:17Z ==
+run dir: /tmp/skiff-run.d
+
+-- 0. leak-demo mode is NEVER a real run (S-6) --
+FAIL: /tmp/skiff-run.d/leak-demo.marker exists — leak-demo mode — this is never a real run.
+      These VMs were booted with SKIFF_LEAK_DEMO=1. Nothing below would be publishable
+      evidence, so proof stops here rather than printing a gradeable transcript.
+
+== PROOF FAILED — see FAIL lines above ==
