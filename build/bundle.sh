@@ -5,7 +5,7 @@ set -euo pipefail
 export GOTOOLCHAIN=local
 cd "$(dirname "$0")/.."
 # LICENSE travels with the bundle: the stick IS the distribution, and Apache-2.0 §4(a) wants a
-# copy of the licence to go with it. The README on the stick also points at it.
+# copy of the license to go with it. The README on the stick also points at it.
 for f in run netsetup proof bin/firecracker kernel/vmlinux rootfs/rootfs.ext4 models.ext4 config.yaml README.md LICENSE; do
   [[ -e "$f" ]] || { echo "bundle.sh: missing $f — build it first" >&2; exit 1; }
 done

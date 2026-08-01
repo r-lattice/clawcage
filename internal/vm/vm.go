@@ -27,7 +27,7 @@ var (
 	// SIGKILLed. The guest got no chance to flush, so its disk state is suspect.
 	ErrForceKilled = errors.New("firecracker ignored SIGTERM and was force-killed")
 	// ErrAlreadyExited: the VMM was gone before Stop asked it to leave — usually it
-	// crashed, and the console log is the interesting artefact.
+	// crashed, and the console log is the interesting artifact.
 	ErrAlreadyExited = errors.New("firecracker had already exited")
 )
 

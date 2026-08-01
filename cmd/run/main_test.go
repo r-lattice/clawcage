@@ -244,7 +244,7 @@ func TestUnlistedFiles_IgnoresTheManifestRuntimeStateAndUserConfig(t *testing.T)
 // --- console tail --------------------------------------------------------------
 //
 // The run dir is wiped on exit by contract, console logs included. On the failure
-// path the tail goes to stderr first, or `up` destroys the one artefact its own
+// path the tail goes to stderr first, or `up` destroys the one artifact its own
 // error message tells the operator to read.
 
 func TestTailFile_ReturnsTheLastLines(t *testing.T) {

@@ -1,9 +1,9 @@
 UNVERIFIED — lab output; verify against source before acting
 
-# Model licence check — Qwen3-1.7B Q4_K_M GGUF
+# Model license check — Qwen3-1.7B Q4_K_M GGUF
 
 Date: 2026-07-31, resolved 2026-08-01 · Checked during Task 6 (build box) · Gate: spec §2
-"verify the exact model file's licence before it ships on the public repo"
+"verify the exact model file's license before it ships on the public repo"
 
 ## Verdict
 
@@ -11,7 +11,7 @@ Date: 2026-07-31, resolved 2026-08-01 · Checked during Task 6 (build box) · Ga
 |---|---|
 | File shipped | `Qwen3-1.7B-Q4_K_M.gguf` → `models/qwen3-1.7b-q4.gguf` |
 | Source repo | **`ggml-org/Qwen3-1.7B-GGUF`** |
-| Licence | **Apache-2.0 — PASS** |
+| License | **Apache-2.0 — PASS** |
 | Base model | `Qwen/Qwen3-1.7B` (Apache-2.0, independently verified below) |
 | Gated / disabled | No / no |
 | Downloaded + verified | **Yes** — sha256 `d2387ca2…c7b5`, 1 282 439 264 B |
@@ -25,7 +25,7 @@ Date: 2026-07-31, resolved 2026-08-01 · Checked during Task 6 (build box) · Ga
 | `https://huggingface.co/Qwen/Qwen3-1.7B-GGUF` + its API | the **official Qwen** GGUF repo — model-card label `License: apache-2.0`, ships a top-level `LICENSE` (11 544 B). Confirms the upstream weights are Apache-2.0. |
 
 Apache-2.0 permits redistribution inside the skiff bundle, including on a public repo,
-provided the licence text and attribution ride along.
+provided the license text and attribution ride along.
 
 ## Why `ggml-org` and not the official Qwen repo
 
@@ -45,7 +45,7 @@ So a Q4_K_M has to come from a requantizer. Candidates, all Apache-2.0 where dec
 | `bartowski/Qwen_Qwen3-1.7B-GGUF` | — | no `license` field declared in card metadata |
 | `lmstudio-community/Qwen3-1.7B-GGUF` | — | no `license` field declared in card metadata |
 
-**`ggml-org` was chosen because it is the llama.cpp organisation itself** — the exact
+**`ggml-org` was chosen because it is the llama.cpp organization itself** — the exact
 upstream `LLAMA_CPP_COMMIT` is already pinned from (`github.com/ggml-org/llama.cpp`). The
 bundle therefore adds **no new trust anchor**: the same org supplies both the inference
 binary and the weights conversion. That directly answers the objection to using a
@@ -73,7 +73,7 @@ pin in `build/pins.env` is independently corroborated rather than self-asserted.
 ## Outstanding obligation
 
 **Apache-2.0 §4(a):** whichever task assembles the public/shipping bundle must include the
-licence text alongside the GGUF. Note that `ggml-org/Qwen3-1.7B-GGUF` does **not** carry a
-`LICENSE` file of its own — it declares Apache-2.0 in card metadata only. Take the licence
+license text alongside the GGUF. Note that `ggml-org/Qwen3-1.7B-GGUF` does **not** carry a
+`LICENSE` file of its own — it declares Apache-2.0 in card metadata only. Take the license
 text from the base model `Qwen/Qwen3-1.7B` (or `Qwen/Qwen3-1.7B-GGUF`, which does ship a
 `LICENSE`) and attribute both Qwen (weights) and ggml-org (quantization).

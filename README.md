@@ -116,7 +116,7 @@ OK: 0 packet(s) on the forward drops — with net.ipv4.ip_forward = 0 that is th
     EXPECTED AND CORRECT reading, not a gap: the kernel rejects a non-local guest packet
     at the routing decision and NEVER traverses the forward hook, so these counters cannot
     increment in the configuration skiff ships. ip_forward = 0 (check 1) is the primary
-    control; these rules are defence in depth for the day forwarding is enabled, and their
+    control; these rules are defense in depth for the day forwarding is enabled, and their
     presence is check 2. The load-bearing test for the rules themselves is the ABLATION run
     with ip_forward=1, where this check demands non-zero and fails on zero.
 
@@ -131,7 +131,7 @@ SKIFF-OUTBOUND-BLOCKED: default route via 172.30.0.1 installed, TCP 443 rc=1, UD
 
 == PROOF PASSED: 1 instance(s), host-only, forwarding off and forward-dropped ==
    Authoritative evidence is host-side kernel state: ip_forward (check 1) is the primary
-   control, the forward drop rules (check 2) are defence in depth, and check 2b grades
+   control, the forward drop rules (check 2) are defense in depth, and check 2b grades
    their counters against the live forwarding posture — zero is correct when forwarding
    is off, and required to be non-zero when it is on. The guest's own BLOCKED line
    corroborates all of it and never carries the verdict alone.
@@ -172,7 +172,7 @@ prints:
 OK: 3 packet(s) hit the forward drops — the guest tried, the kernel stopped it
 ```
 
-That is harness evidence, not a live-host measurement, and is labelled as such. Reproduce it with
+That is harness evidence, not a live-host measurement, and is labeled as such. Reproduce it with
 `bash test/proof_harness.sh`.
 
 ### 3. Ablation matrix — PLANNED, NOT YET RUN
@@ -280,7 +280,7 @@ Notes on the numbers:
   frame observation is structurally impossible rather than merely firewalled — there is no shared L2
   domain to sniff.
 - `net.ipv4.ip_forward = 0` is the primary control: the host never routes a guest packet anywhere.
-- `table inet skiff` adds defence in depth: both directions of forward traffic dropped **with
+- `table inet skiff` adds defense in depth: both directions of forward traffic dropped **with
   counters**, and input from a TAP accepted only in `ct state established` (so a guest may answer the
   host, never initiate to it — otherwise any `0.0.0.0` listener on the host is an egress proxy).
 - IPv6 is removed at two layers: the guest boots with `ipv6.disable=1`, and `netsetup` sets
@@ -373,7 +373,7 @@ file count.
 - kernel `.config` not independently pinned
 - no cgroup/CPU/PID limits on the VMM process (v1)
 - provenance unsigned (sha256 manifest only)
-- **The escape demo was run on one host, with that host's own defences deliberately lowered.**
+- **The escape demo was run on one host, with that host's own defenses deliberately lowered.**
   It is genuine — the guest reached the public internet and `proof` failed (section 4) — but
   reaching that state required disabling the host's forwarding guard, the VPN's own forward-drop
   chain, and firewalld's default rejection. It has not been repeated across different distributions
@@ -424,13 +424,13 @@ building in this space.
 
 ---
 
-## Licence
+## License
 
 Apache-2.0 — full text in `LICENSE` (the canonical upstream text, unmodified; the copyright-holder
 line in its appendix is filled in at publication).
 
-The model file carries its own licence and is not covered by this repository's: **Qwen3-1.7B Q4_K_M
-(GGUF, ggml-org), Apache-2.0**, with the licence verification recorded in
-`docs/model-licence-check.md`. Everything else the build scripts fetch at a pinned digest keeps its
+The model file carries its own license and is not covered by this repository's: **Qwen3-1.7B Q4_K_M
+(GGUF, ggml-org), Apache-2.0**, with the license verification recorded in
+`docs/model-license-check.md`. Everything else the build scripts fetch at a pinned digest keeps its
 own terms too: Firecracker (Apache-2.0), the Linux kernel image from Firecracker's CI (GPL-2.0),
 llama.cpp (MIT) and BusyBox (GPL-2.0).

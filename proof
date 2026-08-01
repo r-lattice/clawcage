@@ -95,7 +95,7 @@ say "-- 2b. forward drop counters, graded against the LIVE forwarding posture (P
 # is unsatisfiable, not merely unlucky: it can only pass in a configuration we
 # deliberately do not ship. Hence the grading below is conditional on the live value:
 #   ip_forward=0 → zero is the EXPECTED and CORRECT reading. ip_forward=0 is the PRIMARY
-#                  control (check 1); these rules are DEFENCE IN DEPTH for the day
+#                  control (check 1); these rules are DEFENSE IN DEPTH for the day
 #                  forwarding is enabled and their PRESENCE is check 2. The load-bearing
 #                  test for the rules themselves is the ablation run with ip_forward=1.
 #   ip_forward=1 → the forward hook IS traversed, so a probing guest must leave a mark.
@@ -118,7 +118,7 @@ else
     say "    EXPECTED AND CORRECT reading, not a gap: the kernel rejects a non-local guest packet"
     say "    at the routing decision and NEVER traverses the forward hook, so these counters cannot"
     say "    increment in the configuration skiff ships. ip_forward = 0 (check 1) is the primary"
-    say "    control; these rules are defence in depth for the day forwarding is enabled, and their"
+    say "    control; these rules are defense in depth for the day forwarding is enabled, and their"
     say "    presence is check 2. The load-bearing test for the rules themselves is the ABLATION run"
     say "    with ip_forward=1, where this check demands non-zero and fails on zero."
   elif [[ "$pkts" -gt 0 ]]; then
@@ -189,7 +189,7 @@ say ""
 if [[ "$fail" == "0" ]]; then
   say "== PROOF PASSED: ${count} instance(s), host-only, forwarding off and forward-dropped =="
   say "   Authoritative evidence is host-side kernel state: ip_forward (check 1) is the primary"
-  say "   control, the forward drop rules (check 2) are defence in depth, and check 2b grades"
+  say "   control, the forward drop rules (check 2) are defense in depth, and check 2b grades"
   say "   their counters against the live forwarding posture — zero is correct when forwarding"
   say "   is off, and required to be non-zero when it is on. The guest's own BLOCKED line"
   say "   corroborates all of it and never carries the verdict alone."
