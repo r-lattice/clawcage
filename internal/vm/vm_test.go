@@ -94,7 +94,7 @@ func TestPlan_RunDirDefaultsOffTheBundle(t *testing.T) {
 	}
 }
 
-func TestPlan_RunDirHonoursEnvOverride(t *testing.T) {
+func TestPlan_RunDirHonorsEnvOverride(t *testing.T) {
 	t.Setenv("SKIFF_RUN_DIR", "/run/user/1000/skiff")
 	i := Plan(cfg(), "/bundle", 1)
 	if i.Socket != "/run/user/1000/skiff/skiff-1.sock" {

@@ -409,7 +409,7 @@ row5() {
   echo "toggle: SKIFF_LEAK_DEMO=1 at boot (no firewall change)" >> "$OUT/row5-ruleset-applied.txt"
   boot_vm 1 "$OUT/row5-boot.log" || { record 5 "leak-demo, no NAT" "BOOT-FAIL" "n/a" "boot failed"; return 0; }
   local c; c="$(fwd_counter_total)"
-  # First: the marker refusal, which is the designed behaviour and its own evidence.
+  # First: the marker refusal, which is the designed behavior and its own evidence.
   local rc_m=0; take_proof "$OUT/row5-proof-marker.txt" || rc_m=$?
   # Then remove the marker to obtain a gradeable transcript. Deliberate and logged.
   echo "   (removing leak-demo.marker to obtain a gradeable transcript — logged)"
