@@ -175,21 +175,52 @@ OK: 3 packet(s) hit the forward drops — the guest tried, the kernel stopped it
 That is harness evidence, not a live-host measurement, and is labeled as such. Reproduce it with
 `bash test/proof_harness.sh`.
 
-### 3. Ablation matrix — PLANNED, NOT YET RUN
+### 3. Ablation matrix — RUN 2026-08-05
 
-This table is the intended headline result and **has not been run**. It is published as the design
-of the experiment so the gap is visible rather than implied. One control is toggled per row, with a
-full boot cycle each and `nft list ruleset` captured before each row so the single-variable claim is
-checkable. Results will land in `docs/ablation-<date>.md`; until then, no row below is a result.
+Every row below is a result. Driven from the assembled `stick/`, so the `MANIFEST.sha256` integrity
+gate actually executed — all six launcher logs record `bundle verified: 10 file(s)`. The `proof`
+used is byte-identical to the one in this repository; `test/ablation.sh` refuses to start if it is
+not, so these transcripts are reproducible by anyone running what is published here.
 
-| # | Control toggled | Expected outcome |
-|---|---|---|
-| 1 | none (baseline) | `PROOF PASSED`, exit 0 |
-| 2 | forward chain deleted | FAIL — check 2 per-chain assertions and check 2b |
-| 3 | input chain deleted | FAIL — check 2's input assertions only |
-| 4 | `ip_forward=1` only | FAIL check 1; counters must now be non-zero; guest still blocked |
-| 5 | leak-demo boot args, no host NAT | FAIL at check 0 on the leak-demo marker; counters above baseline |
-| 6 | full leak (guard down + NAT) | `SKIFF-OUTBOUND-ESCAPED`, exit 1 |
+Each row applies its toggle **before** the boot, so the guest's own probe runs under the condition
+being tested, and `nft list ruleset` is captured before and after every toggle — which is what makes
+"one variable at a time" checkable instead of asserted.
+
+| # | Control toggled | `proof` exit | Forward-drop counters | Result |
+|---|---|---|---|---|
+| 1 | none (baseline) | 0 | 0 | Passes — zero is the correct reading with forwarding off |
+| 2 | forward chain deleted | 1 | chain absent | Detected |
+| 3 | input chain deleted | 1 | 0 | Detected |
+| 4 | `ip_forward=1`, guard intact | 1 | **3** | Detected — **and the drop rules fire** |
+| 5 | leak-demo boot, guard up | 1 | 0 | Marker refusal fires |
+| 6 | full leak — guard removed, forwarding on, NAT | 1 | chain absent | `SKIFF-OUTBOUND-ESCAPED`, detected |
+
+Transcripts, launcher logs and all twelve ruleset captures: [`docs/ablation-2026-08-05/`](docs/ablation-2026-08-05/).
+
+**Row 4 is the one that mattered.** With the guard fully intact and forwarding enabled, the guest's
+probe traversed the forward hook and left three packets on the counters — the one piece of evidence
+in this project the guest cannot author. Until this run that had only ever been shown in the
+namespaced harness, never on real hardware. It is also the exact condition under which check 2b
+flips from "zero is correct" to "zero is a failure", and it graded correctly in both directions.
+
+**Row 5 corrects its own specification.** It was written to show "counters above baseline". It
+cannot: `proof` stops at check 0 on the marker, and with forwarding off the counters are
+structurally zero regardless. What it does show is narrower and more useful — the guest was booted
+with a deliberate escape route while the guard stayed up, and with the marker removed `proof` passed,
+exit 0. That verdict was *correct*; the host really was intact. The point is that **the transcript
+of a deliberately weakened run is indistinguishable from a normal one**, because the transcript
+describes the host and it was the run *configuration* that was abnormal. The marker is the only
+thing that records the difference.
+
+**Row 6 is not a single-variable row.** It toggles four things — guard deleted, forwarding on, NAT
+added, and the guest interface exempted from firewalld — and all four were necessary. Removing
+skiff's guard alone produced no egress at all, for the same reason described in section 4: two
+unrelated host firewalls each independently stop this before skiff's rules are reachable. Rows 1–5
+carry the single-variable claim; row 6 answers a different question, which is whether a genuine
+escape is detected when one actually happens.
+
+**Measured while the baseline row was up:** 28.2 tok/s (128 tokens, 5.56 s wall), CPU-only, in the
+shipped posture.
 
 ### 4. Leak demo — DEMONSTRATED end-to-end, 2026-08-01
 

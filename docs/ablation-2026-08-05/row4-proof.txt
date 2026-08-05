@@ -1,0 +1,46 @@
+== skiff isolation proof — 2026-08-05T10:55:27Z ==
+run dir: /tmp/skiff-run.d
+
+-- 0. leak-demo mode is NEVER a real run (S-6) --
+OK: no leak-demo marker in /tmp/skiff-run.d
+
+-- 1. Host is not forwarding --
+net.ipv4.ip_forward = 1
+FAIL: ip_forward is '1', want 0
+
+-- 2. nftables: the two chains, checked separately (P-3) --
+forward chain, verbatim:
+table inet skiff {
+	chain forward {
+		type filter hook forward priority filter; policy accept;
+		iifname "skiff-tap*" counter packets 3 bytes 184 drop
+		oifname "skiff-tap*" counter packets 0 bytes 0 drop
+	}
+}
+input chain, verbatim:
+table inet skiff {
+	chain input {
+		type filter hook input priority filter; policy accept;
+		iifname "skiff-tap*" ct state established counter packets 73 bytes 7401 accept
+		iifname "skiff-tap*" counter packets 20 bytes 3052 drop
+	}
+}
+
+-- 2b. forward drop counters, graded against the LIVE forwarding posture (P-2) --
+counter evidence, verbatim:
+		iifname "skiff-tap*" counter packets 3 bytes 184 drop
+		oifname "skiff-tap*" counter packets 0 bytes 0 drop
+OK: 3 packet(s) hit the forward drops — the guest tried, the kernel stopped it
+    (net.ipv4.ip_forward = 1; a non-zero counter is the kernel's own record that the
+    forward hook was traversed and this rule fired — the guest cannot author this number)
+
+-- 3. TAPs are host-only /30s --
+skiff-tap0       UP             172.30.0.1/30 
+
+-- 4.0 instance 0 --
+OK: reachable from host (172.30.0.2:8080)
+OK: skiff-tap0 has IPv6 disabled (disable_ipv6=1)
+OK (corroboration only — guest-authored, not evidence against a malicious guest):
+SKIFF-OUTBOUND-BLOCKED: default route via 172.30.0.1 installed, TCP 443 rc=1, UDP 53 reply bytes=0 — neither probe connected
+
+== PROOF FAILED — see FAIL lines above ==

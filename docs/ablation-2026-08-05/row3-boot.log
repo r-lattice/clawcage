@@ -1,0 +1,7 @@
+bundle verified: 10 file(s) match MANIFEST.sha256
+instance 0: booting (console: /tmp/skiff-run.d/skiff-0.console.log)
+instance 0: READY — http://172.30.0.2:8080
+all instances up — Ctrl-C to stop, ./proof 1 to verify isolation
+
+stopping…
+skiff: teardown: instance 0: firecracker exited uncleanly: signal: interrupt (console: /tmp/skiff-run.d/skiff-0.console.log)

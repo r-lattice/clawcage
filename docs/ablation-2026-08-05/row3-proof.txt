@@ -1,0 +1,45 @@
+== skiff isolation proof — 2026-08-05T10:55:07Z ==
+run dir: /tmp/skiff-run.d
+
+-- 0. leak-demo mode is NEVER a real run (S-6) --
+OK: no leak-demo marker in /tmp/skiff-run.d
+
+-- 1. Host is not forwarding --
+net.ipv4.ip_forward = 0
+
+-- 2. nftables: the two chains, checked separately (P-3) --
+FAIL: input chain missing the established-only counter-accept rule (design review I1 / S-7)
+FAIL: input chain missing its counter-drop rule — guests could initiate to the host
+forward chain, verbatim:
+table inet skiff {
+	chain forward {
+		type filter hook forward priority filter; policy accept;
+		iifname "skiff-tap*" counter packets 0 bytes 0 drop
+		oifname "skiff-tap*" counter packets 0 bytes 0 drop
+	}
+}
+input chain, verbatim:
+
+
+-- 2b. forward drop counters, graded against the LIVE forwarding posture (P-2) --
+counter evidence, verbatim:
+		iifname "skiff-tap*" counter packets 0 bytes 0 drop
+		oifname "skiff-tap*" counter packets 0 bytes 0 drop
+OK: 0 packet(s) on the forward drops — with net.ipv4.ip_forward = 0 that is the
+    EXPECTED AND CORRECT reading, not a gap: the kernel rejects a non-local guest packet
+    at the routing decision and NEVER traverses the forward hook, so these counters cannot
+    increment in the configuration skiff ships. ip_forward = 0 (check 1) is the primary
+    control; these rules are defense in depth for the day forwarding is enabled, and their
+    presence is check 2. The load-bearing test for the rules themselves is the ABLATION run
+    with ip_forward=1, where this check demands non-zero and fails on zero.
+
+-- 3. TAPs are host-only /30s --
+skiff-tap0       UP             172.30.0.1/30 
+
+-- 4.0 instance 0 --
+OK: reachable from host (172.30.0.2:8080)
+OK: skiff-tap0 has IPv6 disabled (disable_ipv6=1)
+OK (corroboration only — guest-authored, not evidence against a malicious guest):
+SKIFF-OUTBOUND-BLOCKED: default route via 172.30.0.1 installed, TCP 443 rc=1, UDP 53 reply bytes=0 — neither probe connected
+
+== PROOF FAILED — see FAIL lines above ==
