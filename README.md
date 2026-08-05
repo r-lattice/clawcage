@@ -465,3 +465,7 @@ The model file carries its own license and is not covered by this repository's: 
 `docs/model-license-check.md`. Everything else the build scripts fetch at a pinned digest keeps its
 own terms too: Firecracker (Apache-2.0), the Linux kernel image from Firecracker's CI (GPL-2.0),
 llama.cpp (MIT) and BusyBox (GPL-2.0).
+
+---
+
+*Reviewed 5 August 2026.*
