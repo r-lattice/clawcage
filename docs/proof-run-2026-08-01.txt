@@ -33,7 +33,7 @@ OK: 0 packet(s) on the forward drops — with net.ipv4.ip_forward = 0 that is th
     EXPECTED AND CORRECT reading, not a gap: the kernel rejects a non-local guest packet
     at the routing decision and NEVER traverses the forward hook, so these counters cannot
     increment in the configuration skiff ships. ip_forward = 0 (check 1) is the primary
-    control; these rules are defence in depth for the day forwarding is enabled, and their
+    control; these rules are defense in depth for the day forwarding is enabled, and their
     presence is check 2. The load-bearing test for the rules themselves is the ABLATION run
     with ip_forward=1, where this check demands non-zero and fails on zero.
 
@@ -48,7 +48,7 @@ SKIFF-OUTBOUND-BLOCKED: default route via 172.30.0.1 installed, TCP 443 rc=1, UD
 
 == PROOF PASSED: 1 instance(s), host-only, forwarding off and forward-dropped ==
    Authoritative evidence is host-side kernel state: ip_forward (check 1) is the primary
-   control, the forward drop rules (check 2) are defence in depth, and check 2b grades
+   control, the forward drop rules (check 2) are defense in depth, and check 2b grades
    their counters against the live forwarding posture — zero is correct when forwarding
    is off, and required to be non-zero when it is on. The guest's own BLOCKED line
    corroborates all of it and never carries the verdict alone.
