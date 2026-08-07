@@ -8,11 +8,12 @@ A USB stick that boots a local LLM inside a Firecracker microVM with no configur
 host, plus a `proof` command that reads the host's own kernel state and prints what it finds. The
 claim is **host-verifiable isolation evidence**: on a host in the documented configuration no egress
 path exists from the guest, `proof` asserts each control per-chain and reports the kernel's own
-enforcement counters, and a planned single-variable ablation matrix will show the assertion failing
-as each control is removed.
+enforcement counters, and a six-row ablation matrix — **run 2026-08-05**, rows 1–5 single-variable
+and row 6 a deliberate full teardown — shows the assertion failing as each control is removed.
 
 Status: **v0.1, lab output.** The happy path has been run end-to-end on real hardware and its
-transcript is published below verbatim. What has *not* been demonstrated end-to-end is named in
+transcript is published below, as emitted apart from the edits noted in
+[Published evidence](#published-evidence). What has *not* been demonstrated end-to-end is named in
 [Limitations](#limitations-v01) rather than smoothed over.
 
 ---
@@ -75,7 +76,17 @@ integrity gate.
 
 ## Published evidence
 
-### 1. The proof run — verbatim
+> **Post-emission edits, disclosed.** Three of the transcripts below are not byte-identical to what
+> the tool emitted, and this note is here so that is discoverable without reading the git log.
+> `docs/proof-run-2026-08-01.txt` and `docs/proof-from-usb-2026-08-01.txt` were edited on
+> 2026-08-05 to correct spelling in explanatory prose — commit `d7f809e`, whose message states what
+> was given up. Separately, one line of `docs/leak-demo-2026-08-01.txt` has **one internal
+> identifier substituted**; it has never been published in any other form. **No measurement,
+> verdict, counter, exit code or marker differs in any of them.** Everything else here — including
+> every transcript, launcher log and ruleset capture of the 2026-08-05 ablation in section 3 — is as
+> emitted; `docs/ablation-2026-08-05/RESULTS.md` carries its own regeneration note.
+
+### 1. The proof run
 
 `docs/proof-run-2026-08-01.txt`, exit 0, from the live run on the test rig described in
 [Honest numbers](#honest-numbers). Nothing is elided:
@@ -142,7 +153,8 @@ The same run served a completion: the model loaded from `/models/model.gguf` and
 the first eight characters of `LLAMA_CPP_COMMIT` in `build/pins.env`, i.e. the server in the image is
 the commit the bundle pins. That console log is **not** reproduced here because it no longer exists:
 the run directory (sockets, console logs, markers) is wiped by the launcher's own teardown, by
-design. Only files that survived the run are published, and only verbatim.
+design. Only files that survived the run are published, as emitted apart from the documented edits
+noted at the top of this section.
 
 ### 2. Counter evidence — the one thing the guest cannot author
 
@@ -246,12 +258,18 @@ That ordering is the design argument made concrete: the host kernel indicted the
 its own, and the guest's own confession was the last line, not the first. Full transcript:
 [`docs/leak-demo-2026-08-01.txt`](docs/leak-demo-2026-08-01.txt).
 
-**Why the escape needed three separate things removed.** Getting a guest packet onto the internet
-required disabling the host's IP forwarding guard *and* the VPN's own `forward policy drop` *and*
-adding the interface to a firewalld zone, because firewalld's forward chain ends in `reject with
-icmpx admin-prohibited` for any interface it does not know. Two host firewalls each independently
-prevented the escape before skiff's own rules mattered. That is worth stating plainly: on a
-defended workstation, several unrelated things must fail at once before this is even reachable.
+**Why removing skiff's guard was not enough.** Getting a guest packet onto the internet required
+disabling the host's IP forwarding guard *and* exempting the guest's interface from the host
+firewall manager, because firewalld's forward chain ends in `reject with icmpx admin-prohibited`
+for any interface it does not know.
+
+That is measured, not recalled: during the 2026-08-05 ablation, with skiff's guard deleted and
+forwarding enabled, the guest still reached nothing until its interface was explicitly parked in
+firewalld's `trusted` zone — and no VPN table was present on the host that day (see the twelve
+`nft list ruleset` captures). **An earlier version of this section also blamed a workstation VPN's
+forward-drop chain; that was never measured and has been removed.** The point stands and is
+narrower: on a defended workstation, several unrelated things must fail at once before this is even
+reachable.
 
 **The drill-marker catch, separately.** `proof` refuses to grade a leak-demo run at all — a marker
 written by the launcher hard-fails check 0 before anything else is evaluated, so a rehearsal can
@@ -406,9 +424,9 @@ file count.
 - provenance unsigned (sha256 manifest only)
 - **The escape demo was run on one host, with that host's own defenses deliberately lowered.**
   It is genuine — the guest reached the public internet and `proof` failed (section 4) — but
-  reaching that state required disabling the host's forwarding guard, the VPN's own forward-drop
-  chain, and firewalld's default rejection. It has not been repeated across different distributions
-  or firewall configurations.
+  reaching that state required disabling the host's forwarding guard *and* exempting the guest's
+  interface from the host firewall manager's default rejection. It has not been repeated across
+  different distributions or firewall configurations.
 - **Per-TAP `rp_filter=1` is a no-op on this host.** The kernel applies
   `max(net.ipv4.conf.all.rp_filter, net.ipv4.conf.<iface>.rp_filter)`, and this box ships
   `conf.all = 2` (loose), so the effective mode stays loose no matter what `netsetup` writes on
@@ -417,7 +435,9 @@ file count.
   host-wide sysctl for a control it does not depend on. The real anti-spoofing controls here are
   the /30 point-to-point segments and the counted nftables drop rules; `netsetup`'s comment says
   the same thing at the line that sets it.
-- The ablation matrix above is a **planned** experiment, not results.
+- The ablation matrix above was **run 2026-08-05**; section 3 reports results, not a plan. Rows 1–5
+  are single-variable. Row 6 is not — it is a full teardown, and it needed a host-firewall
+  exemption before it could produce egress at all.
 - CPU-only inference — Firecracker has no GPU passthrough. In the target environment that is a
   feature, but it is a hard limit on throughput.
 - `netsetup.state` guards against the *mistake* of booting with no guard up; it does not guard
